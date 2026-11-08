@@ -514,7 +514,7 @@ pub fn build_items(snapshot: &Value) -> Vec<Item> {
 }
 
 /// One directly focusable row for every named pane in the snapshot.
-pub fn build_pane_items(snapshot: &Value) -> Vec<Item> {
+pub fn build_pane_items_excluding(snapshot: &Value, exclude: &[String]) -> Vec<Item> {
     let workspaces = snapshot.get("workspaces").list_or_empty();
     let tabs = snapshot.get("tabs").list_or_empty();
     let panes = snapshot.get("panes").list_or_empty();
@@ -531,6 +531,9 @@ pub fn build_pane_items(snapshot: &Value) -> Vec<Item> {
     crate::par::map_chunks(panes, |panes| {
         let mut items = Vec::new();
         for pane in panes {
+            if is_excluded(pane, exclude) {
+                continue;
+            }
             let pane_id = pane.get("pane_id");
             let tab_id = pane.get("tab_id");
             let pane_label = clean(pane.get("label"));
@@ -577,6 +580,24 @@ pub fn build_pane_items(snapshot: &Value) -> Vec<Item> {
         }
         items
     })
+}
+
+/// Whether the pane's foreground process is one the config leaves out.
+fn is_excluded(pane: &Value, exclude: &[String]) -> bool {
+    if exclude.is_empty() {
+        return false;
+    }
+    let process = pane.get("foreground_process");
+    let name = pystr::lower(&clean(process.get("name")));
+    let argv0 = match process.get("argv") {
+        Value::List(argv) => argv
+            .first()
+            .and_then(Value::as_str)
+            .map(|path| pystr::lower(pyos::basename(path)))
+            .unwrap_or_default(),
+        _ => String::new(),
+    };
+    exclude.iter().any(|entry| entry == &name || (!argv0.is_empty() && entry == &argv0))
 }
 
 /// One row per plugin action the bar can run.
@@ -782,7 +803,7 @@ mod tests {
 
     #[test]
     fn pane_rows_lead_with_their_names() {
-        let named = pane(&build_pane_items(&testutil::snapshot()), "w1:p7");
+        let named = pane(&build_pane_items_excluding(&testutil::snapshot(), &[]), "w1:p7");
         assert_eq!(named.kind, KIND_PANE);
         assert_eq!(named.title, "server logs");
         assert_eq!(named.detail, "server");
@@ -792,9 +813,33 @@ mod tests {
     #[test]
     fn unnamed_panes_do_not_get_rows() {
         let mut ids: Vec<String> =
-            build_pane_items(&testutil::snapshot()).into_iter().filter_map(|i| i.pane_id).collect();
+            build_pane_items_excluding(&testutil::snapshot(), &[]).into_iter().filter_map(|i| i.pane_id).collect();
         ids.sort();
         assert_eq!(ids, vec!["w1:p1", "w1:p7"]);
+    }
+
+    #[test]
+    fn excluded_processes_do_not_get_pane_rows() {
+        let snapshot = pyjson::loads(
+            r#"{
+                "workspaces": [{"workspace_id": "w1", "label": "w1"}],
+                "tabs": [{"tab_id": "w1:t1", "label": "main", "workspace_id": "w1"}],
+                "panes": [
+                    {"pane_id": "w1:p1", "tab_id": "w1:t1", "label": "Sidebar",
+                     "foreground_process": {"name": "python3", "argv": ["/opt/herdr-sidebar"]}},
+                    {"pane_id": "w1:p2", "tab_id": "w1:t1", "label": "Sidebar 2",
+                     "foreground_process": {"name": "herdr-sidebar", "argv": ["/usr/bin/node"]}},
+                    {"pane_id": "w1:p3", "tab_id": "w1:t1", "label": "logs",
+                     "foreground_process": {"name": "bash", "argv": ["/bin/bash"]}}
+                ]
+            }"#,
+        )
+        .unwrap();
+        let ids = |exclude: &[String]| -> Vec<String> {
+            build_pane_items_excluding(&snapshot, exclude).into_iter().filter_map(|i| i.pane_id).collect()
+        };
+        assert_eq!(ids(&[]), vec!["w1:p1", "w1:p2", "w1:p3"]);
+        assert_eq!(ids(&["herdr-sidebar".to_string()]), vec!["w1:p3"]);
     }
 
     #[test]
@@ -802,7 +847,7 @@ mod tests {
         let mut snapshot = testutil::snapshot();
         snapshot.as_dict_mut().unwrap().insert("focused_pane_id", Value::str("w1:p7"));
         let focused: Vec<String> =
-            build_pane_items(&snapshot).into_iter().filter(|i| i.focused).filter_map(|i| i.pane_id).collect();
+            build_pane_items_excluding(&snapshot, &[]).into_iter().filter(|i| i.focused).filter_map(|i| i.pane_id).collect();
         assert_eq!(focused, vec!["w1:p7"]);
     }
 

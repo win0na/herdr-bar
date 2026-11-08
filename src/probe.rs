@@ -203,7 +203,7 @@ fn call(name: &str, args: &[Value]) -> Value {
         }
         "shorten_path" => Value::str(items::shorten_path(s(a(0)))),
         "build_items" => Value::List(items::build_items(a(0)).iter().map(item).collect()),
-        "build_pane_items" => Value::List(items::build_pane_items(a(0)).iter().map(item).collect()),
+        "build_pane_items" => Value::List(items::build_pane_items_excluding(a(0), &[]).iter().map(item).collect()),
         "painter" => {
             let mut painter = Painter::new();
             let mut out = Vec::new();

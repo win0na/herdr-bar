@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Add `current_first` to put the current row at the top of the list, selected
+  by default.
+- Add `exclude_panes` to leave pane rows out by foreground process name, so
+  plugin panes such as herdr-sidebar stay out of the list.
 - Add OpenCode as an `auto_titles` source (#29). OpenCode prints `OpenCode`
   until the session has a title, and `OC | <title>` after that, so the title is
   read from the terminal title Herdr already reports and no transcript is

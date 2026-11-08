@@ -29,11 +29,15 @@ pub struct Config {
     pub scope: &'static str,
     /// Open with the row you are in selected, not the one you came from.
     pub select_current: bool,
+    /// Put the row you are in at the top of the list.
+    pub current_first: bool,
     /// Let the next session in a pane take over the task title written for
     /// the one before it.
     pub follow_new_sessions: bool,
     /// List plugin actions as rows the bar can run.
     pub actions: bool,
+    /// Pane rows whose foreground process name matches an entry, lowercase.
+    pub exclude_panes: Vec<String>,
 }
 
 /// Python's `int(value)` for whatever JSON put there; None where it raises.
@@ -105,8 +109,13 @@ impl Config {
                 .filter(|scope| *scope != "action" || actions)
                 .unwrap_or("all"),
             select_current: get("select_current").map(|v| v.is_true()).unwrap_or(false),
+            current_first: get("current_first").map(|v| v.is_true()).unwrap_or(false),
             follow_new_sessions: get("follow_new_sessions").map(|v| v.is_true()).unwrap_or(false),
             actions,
+            exclude_panes: strings(get("exclude_panes"))
+                .into_iter()
+                .map(|name| pystr::lower(&name))
+                .collect(),
         }
     }
 
@@ -191,6 +200,25 @@ mod tests {
         for value in ["false", "\"true\"", "1", "null"] {
             assert!(!with("select_current", value).select_current, "select_current = {}", value);
         }
+    }
+
+    #[test]
+    fn current_first_takes_only_true() {
+        assert!(!Config::default().current_first);
+        assert!(with("current_first", "true").current_first);
+        for value in ["false", "\"true\"", "1", "null"] {
+            assert!(!with("current_first", value).current_first, "current_first = {}", value);
+        }
+    }
+
+    #[test]
+    fn exclude_panes_reads_process_names_lowercased() {
+        assert!(Config::default().exclude_panes.is_empty());
+        assert_eq!(
+            with("exclude_panes", r#"["Herdr-Sidebar", "glow"]"#).exclude_panes,
+            vec!["herdr-sidebar", "glow"]
+        );
+        assert!(with("exclude_panes", "\"herdr-sidebar\"").exclude_panes.is_empty());
     }
 
     #[test]

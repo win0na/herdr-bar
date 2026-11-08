@@ -6,7 +6,7 @@ use crate::config::Config;
 use crate::fuzzy::{match_prepared, split_query, Match, Term};
 use crate::fxhash::FxHashMap;
 use crate::icons;
-use crate::items::{build_action_items, build_items, build_pane_items, Item, KIND_ACTION, KIND_AGENT, KIND_PANE, KIND_SPACE, KIND_TAB, PLATFORM};
+use crate::items::{build_action_items, build_items, build_pane_items_excluding, Item, KIND_ACTION, KIND_AGENT, KIND_PANE, KIND_SPACE, KIND_TAB, PLATFORM};
 use crate::keys::{Event, KeyDecoder, MouseKind};
 use crate::mru::Recents;
 use crate::paint::Painter;
@@ -166,7 +166,7 @@ impl Pool {
             items.retain(|item| item.kind != KIND_SPACE);
         }
         let item_count = items.len();
-        items.extend(build_pane_items(snapshot));
+        items.extend(build_pane_items_excluding(snapshot, &config.exclude_panes));
         Pool { workspace_count, items, item_count }
     }
 }
@@ -445,11 +445,15 @@ impl Bar {
         let recent_count = recent.len();
         ordered.extend(rest);
         if let Some(current) = current {
-            // Never first: open-then-Enter should take you somewhere else, the
-            // way alt-tab does. Right after the recents block is close enough
-            // to stay findable.
-            let at = ordered.len().min(recent_count.max(1));
-            ordered.insert(at, current);
+            if self.config.current_first {
+                ordered.insert(0, current);
+            } else {
+                // Never first: open-then-Enter should take you somewhere else, the
+                // way alt-tab does. Right after the recents block is close enough
+                // to stay findable.
+                let at = ordered.len().min(recent_count.max(1));
+                ordered.insert(at, current);
+            }
         }
         ordered
     }
@@ -1798,6 +1802,17 @@ mod tests {
         recents.touch("w1:p5", "");
         let t = bar_with(testutil::snapshot(), Config::default(), recents);
         assert_eq!(Some(&row_item(&t.bar, 1).key), t.bar.current_key.as_ref());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn current_first_puts_the_current_row_on_top() {
+        let mut recents = Recents::new(None);
+        recents.touch("w1:p5", "");
+        let config = config_of(&[("current_first", Value::Bool(true))]);
+        let t = bar_with(testutil::snapshot(), config, recents);
+        assert_eq!(Some(&row_item(&t.bar, 0).key), t.bar.current_key.as_ref());
+        assert_eq!(Some(&t.bar.selected_item().key), t.bar.current_key.as_ref());
     }
 
     #[cfg(unix)]
